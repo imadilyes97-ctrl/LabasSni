@@ -12,5 +12,5 @@ python-magic>=0.4.27,<1.0.0
 tenacity>=8.5.0,<10.0.0
 email-validator>=2.2.0,<3.0.0
 
-# PostgreSQL (remplace SQLite)
-asyncpg>=0.30.0,<1.0.0
+# PostgreSQL (Supabase)
+psycopg2-binary>=2.9.0,<3.0.0

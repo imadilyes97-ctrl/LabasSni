@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:3000"
 
     # Base de données PostgreSQL (Supabase)
-    database_url: str = "postgresql://postgres:imadil1234.%40@db.chtuhujoxuypuckrvhbf.supabase.co:5432/postgres"
+    database_url: str = "postgresql://postgres@localhost:5432/lebessni"
 
     # Paramètres par défaut
     default_style_rendu: str = "studio catalogue"
