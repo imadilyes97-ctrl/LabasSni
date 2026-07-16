@@ -27,8 +27,8 @@ class Settings(BaseSettings):
     jwt_secret: Optional[str] = None
     cors_origins: str = "http://localhost:3000"
 
-    # Base de données
-    database_url: str = "sqlite+aiosqlite:///./lebeSsni.db"
+    # Base de données PostgreSQL (Supabase)
+    database_url: str = "postgresql://postgres:imadil1234.%40@db.chtuhujoxuypuckrvhbf.supabase.co:5432/postgres"
 
     # Paramètres par défaut
     default_style_rendu: str = "studio catalogue"

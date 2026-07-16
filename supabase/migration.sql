@@ -1,8 +1,14 @@
--- Schéma de base de données lebeSsni v2 — PostgreSQL (Supabase)
--- Multi-tenant: chaque vendeur = un client
+-- ============================================================
+-- lebeSsni v2.1.0 — Migration PostgreSQL (Supabase)
+-- Execute CE fichier dans Supabase SQL Editor
+-- ============================================================
 
--- Activer pgcrypto pour gen_random_uuid()
+-- 1. Activer pgcrypto pour gen_random_uuid()
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- ============================================================
+-- 2. TABLES
+-- ============================================================
 
 -- Vendeurs (clients de la plateforme)
 CREATE TABLE IF NOT EXISTS clients (
@@ -19,7 +25,7 @@ CREATE TABLE IF NOT EXISTS clients (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Produits (créés par chaque vendeur)
+-- Produits (crees par chaque vendeur)
 CREATE TABLE IF NOT EXISTS produits (
     id TEXT PRIMARY KEY DEFAULT replace(gen_random_uuid()::text, '-', ''),
     client_id TEXT NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
@@ -39,7 +45,7 @@ CREATE TABLE IF NOT EXISTS produits (
     updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- Générations d'images
+-- Generations d'images
 CREATE TABLE IF NOT EXISTS generations (
     id TEXT PRIMARY KEY DEFAULT replace(gen_random_uuid()::text, '-', ''),
     produit_id TEXT REFERENCES produits(id) ON DELETE SET NULL,
@@ -56,7 +62,7 @@ CREATE TABLE IF NOT EXISTS generations (
     expires_at TIMESTAMP
 );
 
--- Abonnements / Crédits
+-- Abonnements / Credits
 CREATE TABLE IF NOT EXISTS credits (
     id TEXT PRIMARY KEY DEFAULT replace(gen_random_uuid()::text, '-', ''),
     client_id TEXT NOT NULL UNIQUE REFERENCES clients(id) ON DELETE CASCADE,
@@ -81,14 +87,21 @@ CREATE TABLE IF NOT EXISTS analytics (
     UNIQUE(client_id, date)
 );
 
--- Index
+-- ============================================================
+-- 3. INDEX
+-- ============================================================
+
 CREATE INDEX IF NOT EXISTS idx_produits_client ON produits(client_id);
 CREATE INDEX IF NOT EXISTS idx_generations_client ON generations(client_id);
 CREATE INDEX IF NOT EXISTS idx_generations_produit ON generations(produit_id);
 CREATE INDEX IF NOT EXISTS idx_generations_expires ON generations(expires_at);
 CREATE INDEX IF NOT EXISTS idx_analytics_client_date ON analytics(client_id, date);
 
--- Trigger: auto-delete des generations expirées
+-- ============================================================
+-- 4. TRIGGERS
+-- ============================================================
+
+-- Auto-delete des generations expirees
 CREATE OR REPLACE FUNCTION auto_delete_expired_fn()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -104,7 +117,7 @@ CREATE TRIGGER auto_delete_expired_generations
     FOR EACH ROW
     EXECUTE FUNCTION auto_delete_expired_fn();
 
--- Trigger: updated_at automatique
+-- updated_at automatique
 CREATE OR REPLACE FUNCTION update_updated_at_fn()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -113,17 +126,30 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
-CREATE TRIGGER IF NOT EXISTS update_clients_updated_at
-    BEFORE UPDATE ON clients
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_fn();
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_clients_updated_at') THEN
+        CREATE TRIGGER update_clients_updated_at
+            BEFORE UPDATE ON clients
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_fn();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_produits_updated_at') THEN
+        CREATE TRIGGER update_produits_updated_at
+            BEFORE UPDATE ON produits
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_fn();
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'update_credits_updated_at') THEN
+        CREATE TRIGGER update_credits_updated_at
+            BEFORE UPDATE ON credits
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_fn();
+    END IF;
+END $$;
 
-CREATE TRIGGER IF NOT EXISTS update_produits_updated_at
-    BEFORE UPDATE ON produits
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_fn();
-
-CREATE TRIGGER IF NOT EXISTS update_credits_updated_at
-    BEFORE UPDATE ON credits
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_fn();
+-- ============================================================
+-- 5. VERIFICATION
+-- ============================================================
+-- Execute ceci en bas du SQL Editor pour verifier :
+-- SELECT table_name FROM information_schema.tables WHERE table_schema='public';

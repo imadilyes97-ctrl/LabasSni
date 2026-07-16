@@ -1,8 +1,7 @@
 """lebeSsni — Virtual Try-On IA API (v2, RunPod)."""
 
 import logging
-import threading
-import time
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -10,7 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from .core.config import settings
-from .core.database import init_db, cleanup_expired_images
+from .core.database import db, init_db, cleanup_expired_images
 from .routes import tryon, upload, assistant, auth, dashboard
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -59,31 +58,35 @@ async def health(request: Request):
     }
 
 
-def cleanup_loop():
-    """Nettoie les fichiers expirés toutes les heures."""
+async def cleanup_loop():
+    """Nettoie les fichiers expires toutes les heures."""
     while True:
-        time.sleep(3600)
+        await asyncio.sleep(3600)
         try:
-            cleanup_expired_images()
+            await cleanup_expired_images()
         except Exception as e:
             logger.error(f"Erreur dans le cleanup: {e}")
 
 
 @app.on_event("startup")
 async def startup():
-    # Initialiser la base de données
-    db_ok = init_db()
+    # Initialiser le pool PostgreSQL
+    try:
+        await db.connect()
+        logger.info("✅ Pool PostgreSQL connecte")
+    except Exception as e:
+        logger.error(f"❌ Impossible de connecter la DB: {e}")
+        return
+
+    db_ok = await init_db()
     if db_ok:
-        # Premier nettoyage au démarrage
         try:
-            cleanup_expired_images()
+            await cleanup_expired_images()
         except Exception:
             pass
-        # Lancer le thread de nettoyage automatique
-        thread = threading.Thread(target=cleanup_loop, daemon=True)
-        thread.start()
-        logger.info("🧹 Auto-cleanup des fichiers expirés activé")
+        asyncio.create_task(cleanup_loop())
+        logger.info("🧹 Auto-cleanup active")
 
-    logger.info(f"🚀 {settings.app_name} v{settings.app_version} démarrée — "
+    logger.info(f"🚀 {settings.app_name} v{settings.app_version} demarree — "
                 f"moteur: {'RunPod' if settings.runpod_api_key else 'MOCK'}, "
                 f"DB: {'OK' if db_ok else 'HS'}")

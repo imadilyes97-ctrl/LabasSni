@@ -1,67 +1,87 @@
-"""Couche base de donnees — SQLite avec connexion securisee.
+"""Couche base de donnees — PostgreSQL (Supabase) avec asyncpg.
 
-Initialise le schema au demarrage, fournit des helpers pour les requetes.
-Supporte le multi-tenant et l'auto-delete des photos expirees.
+Initialise le schema au demarrage, fournit un pool de connexions asynchrone.
+Remplace l'ancienne couche SQLite synchrone.
 """
 
 import os
-import sqlite3
+import re
 import logging
-import threading
+import asyncio
 from pathlib import Path
-from datetime import datetime, timedelta
-from contextlib import contextmanager
+from datetime import datetime, timezone
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+import asyncpg
 
 from .config import settings
 
 logger = logging.getLogger(__name__)
 
-_local = threading.local()
+
+class AsyncDB:
+    """Wrapper asynchrone autour d'asyncpg avec conversion automatique ? → $N."""
+
+    def __init__(self):
+        self.pool: asyncpg.Pool | None = None
+
+    async def connect(self, dsn: str | None = None) -> None:
+        """Cree le pool de connexions PostgreSQL."""
+        url = dsn or settings.database_url
+        if not url or "postgres" not in url:
+            raise RuntimeError(
+                f"DATABASE_URL invalide ou manquante. Attendue: postgresql://..., recu: {url}"
+            )
+
+        self.pool = await asyncpg.create_pool(
+            url,
+            min_size=1,
+            max_size=5,
+            command_timeout=30,
+            timeout=10,
+        )
+        logger.info(f"✅ Pool PostgreSQL connecte (min=1, max=5)")
+
+    async def close(self) -> None:
+        if self.pool:
+            await self.pool.close()
+            logger.info("Pool PostgreSQL ferme")
+
+    def _convert(self, query: str) -> str:
+        """Convertit les placeholders ? en $1, $2, ... pour asyncpg."""
+        i = [0]
+        return re.sub(r"\?", lambda _: f"${i[0] := i[0] + 1}", query)
+
+    async def execute(self, query: str, *args) -> str:
+        """Execute une commande SQL (INSERT, UPDATE, DELETE, DDL)."""
+        async with self.pool.acquire() as conn:
+            return await conn.execute(self._convert(query), *args)
+
+    async def fetch(self, query: str, *args) -> list[asyncpg.Record]:
+        """Retourne toutes les lignes."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetch(self._convert(query), *args)
+
+    async def fetchrow(self, query: str, *args) -> asyncpg.Record | None:
+        """Retourne la premiere ligne ou None."""
+        async with self.pool.acquire() as conn:
+            return await conn.fetchrow(self._convert(query), *args)
+
+    async def executemany(self, query: str, args_list: list[tuple]) -> str:
+        """Execute la meme requete avec plusieurs jeux de parametres."""
+        async with self.pool.acquire() as conn:
+            return await conn.executemany(self._convert(query), args_list)
 
 
-def get_db_path() -> str:
-    """Retourne le chemin absolu de la base de donnees."""
-    db_url = settings.database_url
-    if db_url.startswith("sqlite+aiosqlite:///"):
-        db_path = db_url.replace("sqlite+aiosqlite:///", "")
-    elif db_url.startswith("sqlite:///"):
-        db_path = db_url.replace("sqlite:///", "")
-    else:
-        db_path = "./lebeSsni.db"
-
-    # S'assurer que le dossier parent existe
-    parent = Path(db_path).parent
-    if str(parent) != ".":
-        os.makedirs(str(parent), exist_ok=True)
-
-    return db_path
+db = AsyncDB()
 
 
-def get_connection() -> sqlite3.Connection:
-    """Recupere une connexion thread-safe."""
-    if not hasattr(_local, "conn") or _local.conn is None:
-        db_path = get_db_path()
-        _local.conn = sqlite3.connect(db_path, check_same_thread=False)
-        _local.conn.row_factory = sqlite3.Row
-        _local.conn.execute("PRAGMA journal_mode=WAL")
-        _local.conn.execute("PRAGMA foreign_keys=ON")
-    return _local.conn
+# ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-@contextmanager
-def get_db():
-    """Context manager pour les requetes — commit/rollback automatique."""
-    conn = get_connection()
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-
-
-def init_db():
-    """Initialise la base de donnees avec le schema SQL."""
+async def init_db() -> bool:
+    """Initialise la base de donnees avec le schema PostgreSQL."""
     schema_path = Path(__file__).parent.parent / "models" / "schema.sql"
 
     if not schema_path.exists():
@@ -70,57 +90,55 @@ def init_db():
 
     try:
         schema_sql = schema_path.read_text(encoding="utf-8")
-        conn = get_connection()
-        conn.executescript(schema_sql)
-        conn.commit()
-        logger.info("Base de donnees initialisee avec succes")
+
+        # Executer chaque instruction separement car asyncpg n'aime pas les blocks multiples
+        statements = [s.strip() for s in schema_sql.split(";") if s.strip()]
+
+        async with db.pool.acquire() as conn:
+            for stmt in statements:
+                if stmt:
+                    try:
+                        await conn.execute(stmt)
+                    except asyncpg.exceptions.DuplicateTableError:
+                        pass  # La table existe deja — OK
+                    except asyncpg.exceptions.DuplicateFunctionError:
+                        pass  # La fonction existe deja — OK
+                    except asyncpg.exceptions.DuplicateObjectError:
+                        pass  # L'extension existe deja — OK
+                    except Exception as e:
+                        logger.warning(f"Statement ignore: {e}")
+
+        logger.info("✅ Base de donnees PostgreSQL initialisee")
         return True
+
     except Exception as e:
-        logger.error(f"Erreur d'initialisation de la DB: {e}")
+        logger.error(f"❌ Erreur d'initialisation de la DB: {e}")
         return False
 
 
-def cleanup_expired_images():
-    """Supprime les entrees expirees et leurs fichiers."""
-    import glob
-
+async def cleanup_expired_images():
+    """Supprime les generations expirees."""
     try:
-        with get_db() as db:
-            # Recuperer les chemins a supprimer avant de supprimer les entrees
-            expired = db.execute(
-                "SELECT user_image_url, result_image_url FROM generations WHERE expires_at < datetime('now')"
-            ).fetchall()
-
-            # Supprimer les fichiers
-            upload_dir = settings.upload_dir
-            for row in expired:
-                for url in [row["user_image_url"], row["result_image_url"]]:
-                    if url and url.startswith("/"):
-                        file_path = str(Path(upload_dir) / Path(url).name)
-                        if os.path.exists(file_path):
-                            os.remove(file_path)
-                            logger.info(f"Fichier expire supprime: {file_path}")
-
-            # Nettoyer les entrees orphelines (plus vieilles que la retention max)
-            max_hours = settings.image_retention_hours
-            db.execute(
-                "DELETE FROM generations WHERE created_at < datetime('now', ?)",
-                (f"-{max_hours} hours",)
-            )
-
-            logger.info(f"Nettoyage termine: {len(expired)} fichiers supprimes")
+        result = await db.execute(
+            "DELETE FROM generations WHERE expires_at IS NOT NULL AND expires_at < NOW()"
+        )
+        # Extraire le nombre de lignes supprimees du message
+        match = re.search(r"(\d+)", result)
+        count = int(match.group(1)) if match else 0
+        logger.info(f"Nettoyage termine: {count} generations expirees supprimees")
     except Exception as e:
         logger.error(f"Erreur nettoyage: {e}")
 
 
 def log_image_access(client_id: str, image_url: str, visitor_ip: str | None, action: str):
-    """Logger les acces aux images dans un fichier access.log (RGPD)."""
+    """Logger les acces aux images (fichier — identique a avant)."""
     try:
-        access_log_dir = Path(settings.upload_dir)
+        from pathlib import Path as P
+        access_log_dir = P(settings.upload_dir)
         os.makedirs(str(access_log_dir), exist_ok=True)
         log_path = access_log_dir / "access.log"
 
-        timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         ip = visitor_ip or "-"
         line = f"[{timestamp}] {action} {client_id} {image_url} {ip}\n"
 

@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from typing import Optional
 
 from ..core.auth import get_current_client
-from ..core.database import get_db
+from ..core.database import db
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -52,19 +52,18 @@ def _generate_slug(nom: str) -> str:
 @router.get("/produits")
 async def list_produits(client_id: str = Depends(get_current_client)):
     """Liste tous les produits du client connecte avec leur compteur de generations."""
-    with get_db() as db:
-        rows = db.execute(
-            """
-            SELECT
-                p.id, p.nom, p.description, p.product_type, p.image_url,
-                p.landing_slug, p.created_at,
-                (SELECT COUNT(*) FROM generations g WHERE g.produit_id = p.id) AS generations_count
-            FROM produits p
-            WHERE p.client_id = ?
-            ORDER BY p.created_at DESC
-            """,
-            (client_id,),
-        ).fetchall()
+    rows = await db.fetch(
+        """
+        SELECT
+            p.id, p.nom, p.description, p.product_type, p.image_url,
+            p.landing_slug, p.created_at,
+            (SELECT COUNT(*) FROM generations g WHERE g.produit_id = p.id) AS generations_count
+        FROM produits p
+        WHERE p.client_id = ?
+        ORDER BY p.created_at DESC
+        """,
+        client_id,
+    )
     return [dict(r) for r in rows]
 
 
@@ -77,27 +76,26 @@ async def create_produit(
     if len(req.nom) < 2:
         raise HTTPException(400, "Nom du produit trop court (min 2 caracteres)")
 
-    with get_db() as db:
-        slug = _generate_slug(req.nom)
+    slug = _generate_slug(req.nom)
 
-        # Garantir l'unicite du slug
-        existing = db.execute(
-            "SELECT id FROM produits WHERE landing_slug = ?", (slug,)
-        ).fetchone()
-        if existing:
-            slug = f"{slug}-{uuid.uuid4().hex[:6]}"
+    # Garantir l'unicite du slug
+    existing = await db.fetchrow(
+        "SELECT id FROM produits WHERE landing_slug = ?", slug
+    )
+    if existing:
+        slug = f"{slug}-{uuid.uuid4().hex[:6]}"
 
-        db.execute(
-            "INSERT INTO produits (client_id, nom, description, product_type, image_url, landing_slug) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (client_id, req.nom, req.description, req.product_type, req.image_url, slug),
-        )
+    await db.execute(
+        "INSERT INTO produits (client_id, nom, description, product_type, image_url, landing_slug) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        client_id, req.nom, req.description, req.product_type, req.image_url, slug,
+    )
 
-        # Récupérer l'ID généré (TEXT, pas lastrowid)
-        row = db.execute(
-            "SELECT * FROM produits WHERE landing_slug = ? AND client_id = ?",
-            (slug, client_id),
-        ).fetchone()
+    # Récupérer l'ID généré (TEXT)
+    row = await db.fetchrow(
+        "SELECT * FROM produits WHERE landing_slug = ? AND client_id = ?",
+        slug, client_id,
+    )
 
     logger.info(f"📦 Produit cree: {row['nom']} (slug={slug}) — client={client_id}")
     return dict(row)
@@ -109,15 +107,14 @@ async def delete_produit(
     client_id: str = Depends(get_current_client),
 ):
     """Supprime un produit en verifiant qu'il appartient au client."""
-    with get_db() as db:
-        row = db.execute(
-            "SELECT id FROM produits WHERE id = ? AND client_id = ?",
-            (produit_id, client_id),
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Produit non trouve")
+    row = await db.fetchrow(
+        "SELECT id FROM produits WHERE id = ? AND client_id = ?",
+        produit_id, client_id,
+    )
+    if not row:
+        raise HTTPException(404, "Produit non trouve")
 
-        db.execute("DELETE FROM produits WHERE id = ?", (produit_id,))
+    await db.execute("DELETE FROM produits WHERE id = ?", produit_id)
 
     logger.info(f"🗑️ Produit {produit_id} supprime par client {client_id}")
     return {"message": "Produit supprime"}
@@ -129,13 +126,12 @@ async def delete_produit(
 @router.get("/credits")
 async def get_credits(client_id: str = Depends(get_current_client)):
     """Retourne les informations de credits du client connecte."""
-    with get_db() as db:
-        row = db.execute(
-            "SELECT plan, credits_total, credits_used, credits_remaining, "
-            "billing_period_start, billing_period_end "
-            "FROM credits WHERE client_id = ?",
-            (client_id,),
-        ).fetchone()
+    row = await db.fetchrow(
+        "SELECT plan, credits_total, credits_used, credits_remaining, "
+        "billing_period_start, billing_period_end "
+        "FROM credits WHERE client_id = ?",
+        client_id,
+    )
 
     if not row:
         raise HTTPException(404, "Credits non trouves")
@@ -148,16 +144,15 @@ async def get_credits(client_id: str = Depends(get_current_client)):
 @router.get("/stats")
 async def get_stats(client_id: str = Depends(get_current_client)):
     """Retourne les analytics des 7 derniers jours (ou donnees mock si vide)."""
-    with get_db() as db:
-        rows = db.execute(
-            """
-            SELECT date, visiteurs, generations, clics_achat
-            FROM analytics
-            WHERE client_id = ? AND date >= date('now', '-7 days')
-            ORDER BY date ASC
-            """,
-            (client_id,),
-        ).fetchall()
+    rows = await db.fetch(
+        """
+        SELECT date, visiteurs, generations, clics_achat
+        FROM analytics
+        WHERE client_id = ? AND date >= CURRENT_DATE - INTERVAL '7 days'
+        ORDER BY date ASC
+        """,
+        client_id,
+    )
 
     if rows:
         evolution = [dict(r) for r in rows]
@@ -194,12 +189,11 @@ async def get_stats(client_id: str = Depends(get_current_client)):
 @router.get("/config")
 async def get_config(client_id: str = Depends(get_current_client)):
     """Retourne la configuration du client connecte."""
-    with get_db() as db:
-        row = db.execute(
-            "SELECT ton_assistant, duree_retention, pixel_meta, pixel_tiktok, webhook_url "
-            "FROM clients WHERE id = ?",
-            (client_id,),
-        ).fetchone()
+    row = await db.fetchrow(
+        "SELECT ton_assistant, duree_retention, pixel_meta, pixel_tiktok, webhook_url "
+        "FROM clients WHERE id = ?",
+        client_id,
+    )
 
     if not row:
         raise HTTPException(404, "Client non trouve")
@@ -231,19 +225,17 @@ async def update_config(
     values = list(updates.values())
     values.append(client_id)
 
-    with get_db() as db:
-        db.execute(
-            f"UPDATE clients SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-            values,
-        )
+    await db.execute(
+        f"UPDATE clients SET {set_clause} WHERE id = ?",
+        *values,
+    )
 
     # Re-lire la config mise a jour
-    with get_db() as db:
-        row = db.execute(
-            "SELECT ton_assistant, duree_retention, pixel_meta, pixel_tiktok, webhook_url "
-            "FROM clients WHERE id = ?",
-            (client_id,),
-        ).fetchone()
+    row = await db.fetchrow(
+        "SELECT ton_assistant, duree_retention, pixel_meta, pixel_tiktok, webhook_url "
+        "FROM clients WHERE id = ?",
+        client_id,
+    )
 
     logger.info(f"⚙️  Config mise a jour pour client {client_id}: {list(updates.keys())}")
     return dict(row)

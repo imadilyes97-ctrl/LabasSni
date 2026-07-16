@@ -1,0 +1,13 @@
+{
+  "buildCommand": null,
+  "outputDirectory": ".",
+  "functions": {
+    "api/index.py": {
+      "memory": 1024,
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index.py" }
+  ]
+}

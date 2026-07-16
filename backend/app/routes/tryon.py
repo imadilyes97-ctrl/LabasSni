@@ -10,7 +10,7 @@ from ..models.tryon import TryOnRequest, TryOnResponse, TryonMode, GenerationSta
 from ..services.mode_detector import detect_mode
 from ..services.image_generator import ImageGenerator
 from ..core.config import settings
-from ..core.database import get_db, log_image_access
+from ..core.database import db, log_image_access
 from ..core.security import verify_api_key
 
 logger = logging.getLogger(__name__)
@@ -21,11 +21,10 @@ generator = ImageGenerator()
 async def _fire_webhook(client_id: str, produit_id: str | None, mode: str, timestamp: str):
     """Appelle le webhook du client de maniere asynchrone (fire-and-forget)."""
     try:
-        with get_db() as db:
-            row = db.execute(
-                "SELECT webhook_url FROM clients WHERE id = ?",
-                (client_id,),
-            ).fetchone()
+        row = await db.fetchrow(
+            "SELECT webhook_url FROM clients WHERE id = ?",
+            client_id,
+        )
 
         if not row or not row["webhook_url"]:
             return

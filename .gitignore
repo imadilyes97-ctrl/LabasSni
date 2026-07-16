@@ -1,9 +1,19 @@
-node_modules/
-.next/
-__pycache__/
+# Backend
+backend/.env
+backend/__pycache__/
+backend/app/__pycache__/
+backend/app/**/__pycache__/
+backend/uploads/
+backend/lebeSsni.db
+backend/lebeSsni.db-*
+
+# Frontend
+frontend/.env.local
+frontend/.next/
+frontend/node_modules/
+frontend/out/
+
+# Python
 *.pyc
+__pycache__/
 .env
-uploads/
-*.db
-.vercel
-dist/
