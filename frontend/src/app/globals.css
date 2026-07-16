@@ -8,6 +8,19 @@
   --color-text-dim: oklch(55% 0 0);
   --color-accent: oklch(62% 0.24 260);
   --color-accent-soft: oklch(62% 0.24 260 / 0.15);
+
+  --animate-slide-up: slide-up 0.3s ease-out;
+
+  @keyframes slide-up {
+    from {
+      transform: translateY(100%);
+      opacity: 0;
+    }
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
 }
 
 body {
@@ -15,16 +28,48 @@ body {
   color: var(--color-text);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  scrollbar-gutter: stable both-edges;
+  color-scheme: dark;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
+/* Scrollbar standards (Firefox) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: oklch(25% 0 0) transparent;
+}
+
+/* Scrollbar Webkit (Chrome, Safari) */
+*::-webkit-scrollbar {
   width: 6px;
 }
-::-webkit-scrollbar-track {
+*::-webkit-scrollbar-track {
   background: transparent;
 }
-::-webkit-scrollbar-thumb {
+*::-webkit-scrollbar-thumb {
   background: oklch(25% 0 0);
   border-radius: 3px;
+}
+
+/* Focus visible global */
+*:focus-visible {
+  outline: 2px solid oklch(62% 0.24 260);
+  outline-offset: 2px;
+}
+
+/* Respect prefers-reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Sélection */
+::selection {
+  background: oklch(62% 0.24 260 / 0.3);
+  color: oklch(95% 0 0);
 }
