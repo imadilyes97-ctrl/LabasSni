@@ -2,6 +2,7 @@
 
 import re, uuid, html
 from pathlib import Path
+from fastapi import HTTPException
 
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
