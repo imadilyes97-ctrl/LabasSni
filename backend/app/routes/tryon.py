@@ -1,16 +1,56 @@
 """Routes de génération Try-On (RunPod Serverless)."""
 
-import uuid, os, logging
+import uuid
+import os
+import logging
+import asyncio
+from datetime import datetime
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from ..models.tryon import TryOnRequest, TryOnResponse, TryonMode, GenerationStatus
 from ..services.mode_detector import detect_mode
 from ..services.image_generator import ImageGenerator
 from ..core.config import settings
+from ..core.database import get_db, log_image_access
 from ..core.security import verify_api_key
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tryon", tags=["tryon"])
 generator = ImageGenerator()
+
+
+async def _fire_webhook(client_id: str, produit_id: str | None, mode: str, timestamp: str):
+    """Appelle le webhook du client de maniere asynchrone (fire-and-forget)."""
+    try:
+        with get_db() as db:
+            row = db.execute(
+                "SELECT webhook_url FROM clients WHERE id = ?",
+                (client_id,),
+            ).fetchone()
+
+        if not row or not row["webhook_url"]:
+            return
+
+        webhook_url = row["webhook_url"]
+        payload = {
+            "event": "generation.completed",
+            "produit_id": produit_id,
+            "mode": mode,
+            "timestamp": timestamp,
+        }
+
+        import httpx
+        async with httpx.AsyncClient(timeout=httpx.Timeout(5.0)) as client:
+            resp = await client.post(webhook_url, json=payload)
+            resp.raise_for_status()
+
+        logger.info(f"🔔 Webhook envoye avec succes → {webhook_url}")
+
+    except httpx.TimeoutException:
+        logger.warning(f"⏱️  Webhook timeout (5s) pour client {client_id}")
+    except httpx.HTTPStatusError as e:
+        logger.warning(f"⚠️  Webhook HTTP {e.response.status_code} pour client {client_id}")
+    except Exception as e:
+        logger.warning(f"⚠️  Webhook error pour client {client_id}: {e}")
 
 
 @router.post("/generate", response_model=TryOnResponse)
@@ -23,7 +63,7 @@ async def generate_tryon(
     try:
         for img, name in [(person_image, "person_image"), (product_image, "product_image")]:
             if not img.content_type or not img.content_type.startswith("image/"):
-                raise HTTPException(400, f"{name} doit être une image")
+                raise HTTPException(400, f"{name} doit etre une image")
             content = await img.read()
             if len(content) > settings.max_image_size_mb * 1024 * 1024:
                 raise HTTPException(400, f"{name} trop volumineuse (max {settings.max_image_size_mb}MB)")
@@ -51,14 +91,31 @@ async def generate_tryon(
             style_rendu=request.style_rendu, orientation=request.orientation,
         )
 
+        # Logger l'acces a la generation
+        try:
+            client_id = request.tenant_id if request.tenant_id != "default" else api_key
+            if result.get("image_url"):
+                log_image_access(client_id, result["image_url"], None, "generation")
+        except Exception:
+            pass
+
+        # Webhook asynchrone (fire-and-forget)
+        client_id = request.tenant_id if request.tenant_id != "default" else api_key
+        asyncio.create_task(_fire_webhook(
+            client_id=client_id,
+            produit_id=request.session_id,
+            mode=mode.value if hasattr(mode, "value") else str(mode),
+            timestamp=datetime.utcnow().isoformat(),
+        ))
+
         return TryOnResponse(id=result["id"], status=GenerationStatus.termine,
-            image_url=result.get("image_url"), mode=mode, message="Génération réussie",
+            image_url=result.get("image_url"), mode=mode, message="Generation reussie",
             validation_checklist={"visage_fidele": True, "produit_fidele": True, "mode_respecte": True})
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Erreur génération: {e}")
+        logger.error(f"Erreur generation: {e}")
         return TryOnResponse(id=str(uuid.uuid4()), status=GenerationStatus.echoue,
             mode=request.mode, error=str(e))
 

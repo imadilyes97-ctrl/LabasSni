@@ -11,7 +11,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .core.config import settings
 from .core.database import init_db, cleanup_expired_images
-from .routes import tryon, upload, assistant, auth
+from .routes import tryon, upload, assistant, auth, dashboard
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -42,6 +42,7 @@ async def add_security_headers(request: Request, call_next):
 
 
 app.include_router(auth.router)
+app.include_router(dashboard.router)
 app.include_router(tryon.router)
 app.include_router(assistant.router)
 app.include_router(upload.router)

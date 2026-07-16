@@ -1,17 +1,27 @@
 """Routes d'upload et gestion des fichiers."""
 
 import os, uuid, logging
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Depends
 from fastapi.responses import FileResponse
 from ..core.config import settings
+from ..core.auth import get_current_client
 from ..core.sanitize import validate_file_id, secure_join_path, ALLOWED_EXTENSIONS
+from ..core.database import log_image_access
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/upload", tags=["upload"])
 
 
 @router.post("/photo")
-async def upload_photo(image: UploadFile = File(...)):
+async def upload_photo(
+    image: UploadFile = File(...),
+    consent: bool = Form(False),
+    client_id: str = Depends(get_current_client),
+):
+    """Upload une photo avec consentement RGPD obligatoire."""
+    if not consent:
+        raise HTTPException(400, "Consentement RGPD requis")
+
     if not image.content_type or not image.content_type.startswith("image/"):
         raise HTTPException(400, "Format invalide")
     content = await image.read()
@@ -23,9 +33,13 @@ async def upload_photo(image: UploadFile = File(...)):
     file_id = str(uuid.uuid4())
     safe_filename = f"{file_id}.{ext}"
     os.makedirs(settings.upload_dir, exist_ok=True)
-    with open(os.path.join(settings.upload_dir, safe_filename), "wb") as f:
+    filepath = os.path.join(settings.upload_dir, safe_filename)
+    with open(filepath, "wb") as f:
         f.write(content)
-    logger.info(f"📸 Upload: {safe_filename} ({len(content)} bytes)")
+
+    logger.info(f"📸 Upload: {safe_filename} ({len(content)} bytes) — client={client_id}, consent=oui")
+    log_image_access(client_id, f"/api/upload/{file_id}", None, "upload")
+
     return {"id": file_id, "url": f"/api/upload/{file_id}", "size": len(content)}
 
 

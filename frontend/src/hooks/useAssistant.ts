@@ -4,7 +4,7 @@ import { useState, useCallback } from "react";
 import type { AssistantMessage } from "@/lib/types";
 import { assistantChat } from "@/lib/api";
 
-export function useAssistant() {
+export function useAssistant(ton?: string, boutique?: string) {
   const [messages, setMessages] = useState<AssistantMessage[]>([
     {
       role: "assistant",
@@ -24,7 +24,7 @@ export function useAssistant() {
     setMessages((prev) => [...prev, { role: "user", content: message }]);
 
     try {
-      const data = await assistantChat(message);
+      const data = await assistantChat(message, undefined, ton, boutique);
       setMessages((prev) => [
         ...prev,
         {
@@ -44,7 +44,7 @@ export function useAssistant() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [ton, boutique]);
 
   return { messages, loading, send };
 }

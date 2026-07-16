@@ -1,8 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import Script from "next/script";
 import { PhotoUploader } from "@/components/widget/PhotoUploader";
 import { ResultViewer } from "@/components/widget/ResultViewer";
+
+const META_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID || "";
+const TIKTOK_PIXEL_ID = process.env.NEXT_PUBLIC_TIKTOK_PIXEL_ID || "";
+const hasMeta = !!META_PIXEL_ID;
+const hasTikTok = !!TIKTOK_PIXEL_ID;
+
+function trackMetaEvent(event: string, data?: Record<string, unknown>) {
+  if (typeof window !== "undefined" && (window as any).fbq) {
+    (window as any).fbq("track", event, data);
+  }
+}
+
+function trackTikTokEvent(event: string, data?: Record<string, unknown>) {
+  if (typeof window !== "undefined" && (window as any).ttq) {
+    (window as any).ttq.track(event, data);
+  }
+}
 
 export default function LandingPage() {
   const [personPhoto, setPersonPhoto] = useState<string | null>(null);
@@ -22,6 +40,8 @@ export default function LandingPage() {
       const res = await fetch("/api/tryon/generate", { method: "POST", body: form });
       if (!res.ok) throw new Error("Erreur");
       setResult(await res.json());
+      trackMetaEvent("SubmitApplication");
+      trackTikTokEvent("SubmitApplication");
     } catch {
       setError("Une erreur est survenue");
     } finally {
@@ -29,8 +49,78 @@ export default function LandingPage() {
     }
   };
 
+  const handleBuyClick = useCallback(() => {
+    trackMetaEvent("Purchase");
+    trackTikTokEvent("Purchase");
+  }, []);
+
+  // Fire ViewContent / PageView once on mount
+  useEffect(() => {
+    if (hasMeta) {
+      trackMetaEvent("ViewContent", { content_type: "landing" });
+    }
+    if (hasTikTok) {
+      trackTikTokEvent("ViewContent", { content_type: "landing" });
+    }
+  }, []);
+
   return (
     <div className="min-h-screen bg-surface">
+      {/* Meta Pixel Script */}
+      {hasMeta && (
+        <>
+          <Script
+            id="meta-pixel-init"
+            strategy="afterInteractive"
+            dangerouslySetInnerHTML={{
+              __html: `
+                !function(f,b,e,v,n,t,s)
+                {if(f.fbq)return;n=f.fbq=function(){n.callMethod?
+                n.callMethod.apply(n,arguments):n.queue.push(arguments)};
+                if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';
+                n.queue=[];t=b.createElement(e);t.async=!0;
+                t.src=v;s=b.getElementsByTagName(e)[0];
+                s.parentNode.insertBefore(t,s)}(window, document,'script',
+                'https://connect.facebook.net/en_US/fbevents.js');
+                fbq('init', '${META_PIXEL_ID}');
+                fbq('track', 'PageView');
+              `,
+            }}
+          />
+          <noscript>
+            <img
+              height="1"
+              width="1"
+              style={{ display: "none" }}
+              src={`https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1`}
+              alt=""
+            />
+          </noscript>
+        </>
+      )}
+
+      {/* TikTok Pixel Script */}
+      {hasTikTok && (
+        <Script
+          id="tiktok-pixel-init"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              !function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];
+              ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];
+              ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)));}};
+              for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);
+              ttq.load=function(t,e){var n=document.createElement("script");n.type="text/javascript";n.async=!0;
+              n.src="https://analytics.tiktok.com/i18n/pixel/events.js?sdkid="+t+"&lib="+e;
+              var o=document.getElementsByTagName("script")[0];o.parentNode.insertBefore(n,o);};
+              ttq.load('${TIKTOK_PIXEL_ID}');
+              ttq.page();
+            }(window, document, 'ttq');
+            `,
+          }}
+        />
+      )}
+
       {/* Hero */}
       <section className="relative overflow-hidden border-b border-zinc-800">
         <div className="mx-auto max-w-6xl px-6 py-20 text-center">
@@ -66,7 +156,10 @@ export default function LandingPage() {
               >
                 Réessayer
               </button>
-              <button className="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors">
+              <button
+                onClick={handleBuyClick}
+                className="rounded-xl bg-indigo-600 px-8 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 transition-colors"
+              >
                 Acheter maintenant →
               </button>
             </div>

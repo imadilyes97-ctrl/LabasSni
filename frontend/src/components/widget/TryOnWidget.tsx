@@ -8,9 +8,15 @@ import { ModeSelector } from "./ModeSelector";
 import { ResultViewer } from "./ResultViewer";
 import { AssistantChat } from "./AssistantChat";
 
-export function TryOnWidget() {
-  const t = useTryOn();
-  const a = useAssistant();
+interface TryOnWidgetProps {
+  productType?: string;
+  ton?: string;
+  boutique?: string;
+}
+
+export function TryOnWidget({ productType, ton, boutique }: TryOnWidgetProps) {
+  const t = useTryOn(productType);
+  const a = useAssistant(ton, boutique);
   const [chatOpen, setChatOpen] = useState(false);
 
   return (
@@ -20,7 +26,7 @@ export function TryOnWidget() {
         <div className="space-y-6">
           <header className="space-y-2">
             <h1 className="text-2xl font-bold tracking-tight text-zinc-100 sm:text-3xl">
-              Essayage Virtuel
+              {boutique ? `${boutique} — ` : ""}Essayage Virtuel
             </h1>
             <p className="text-sm text-zinc-500">
               Uploade ta photo et découvre le rendu en quelques secondes

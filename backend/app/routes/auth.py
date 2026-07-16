@@ -52,10 +52,16 @@ async def register(req: RegisterRequest):
             raise HTTPException(409, "Cet email est déjà utilisé")
 
         # Créer le client
-        client_id = db.execute(
+        db.execute(
             "INSERT INTO clients (nom_boutique, email, password_hash) VALUES (?, ?, ?)",
             (req.nom_boutique, req.email, hash_password(req.password)),
-        ).lastrowid
+        )
+
+        # Récupérer l'ID généré (TEXT, pas lastrowid qui retourne un rowid SQLite)
+        client = db.execute("SELECT id FROM clients WHERE email = ?", (req.email,)).fetchone()
+        if not client:
+            raise HTTPException(500, "Erreur création du compte")
+        client_id = client["id"]
 
         # Initialiser ses crédits (Starter: 50 générations)
         db.execute(
@@ -63,7 +69,7 @@ async def register(req: RegisterRequest):
             (client_id,),
         )
 
-        token = create_token(str(client_id))
+        token = create_token(client_id)
 
     return AuthResponse(token=token, client_id=str(client_id), nom_boutique=req.nom_boutique)
 

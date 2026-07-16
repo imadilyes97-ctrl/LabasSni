@@ -4,12 +4,23 @@ import { useState, useCallback } from "react";
 import type { UploadState, TryOnResponse, TryonMode } from "@/lib/types";
 import { generateTryOn } from "@/lib/api";
 
-export function useTryOn() {
+export function useTryOn(productType?: string) {
   const [upload, setUpload] = useState<UploadState>({});
   const [result, setResult] = useState<TryOnResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mode, setMode] = useState<TryonMode>("article_unique");
+
+  // Pré-sélection du mode selon le type de produit
+  const initialMode = (): TryonMode => {
+    if (!productType) return "article_unique";
+    const multi = ["tenue", "ensemble", "costume", "pack", "lot"];
+    if (multi.some((k) => productType.toLowerCase().includes(k))) {
+      return "tenue_complete";
+    }
+    return "article_unique";
+  };
+
+  const [mode, setMode] = useState<TryonMode>(initialMode);
 
   const setPersonPhoto = useCallback((file: File) => {
     const preview = URL.createObjectURL(file);
@@ -35,7 +46,7 @@ export function useTryOn() {
       const data = await generateTryOn(
         upload.personPhoto,
         upload.productPhoto,
-        "vêtement",
+        productType || "vêtement",
         mode,
       );
       setResult(data);
@@ -44,7 +55,7 @@ export function useTryOn() {
     } finally {
       setLoading(false);
     }
-  }, [upload, mode]);
+  }, [upload, mode, productType]);
 
   const reset = useCallback(() => {
     setUpload({});

@@ -14,11 +14,11 @@ router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 async def assistant_chat(request: AssistantRequest, tenant_id: str = Depends(verify_tenant)):
     tenant = get_tenant(request.tenant_id if request.tenant_id != "default" else tenant_id)
     msg = request.message.lower()
-    reply = _get_reply(msg, request.upload_state)
+    reply = _get_reply(msg, request.upload_state, ton=request.ton, boutique=request.boutique)
     return AssistantResponse(reply=reply, suggested_actions=_get_actions(reply))
 
 
-def _get_reply(message: str, upload_state: str | None = None) -> str:
+def _get_reply(message: str, upload_state: str | None = None, ton: str | None = None, boutique: str | None = None) -> str:
     if not upload_state or upload_state == "initial":
         return ("👋 Bienvenue sur l'essayage virtuel ! Prends une photo de toi (de face, bien éclairée). "
                 "🔒 Ta photo est utilisée uniquement pour la génération et supprimée après 24h.")

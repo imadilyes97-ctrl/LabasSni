@@ -43,6 +43,8 @@ class AssistantRequest(BaseModel):
     tenant_id: str = "default"
     session_id: Optional[str] = None
     upload_state: Optional[str] = None
+    ton: Optional[str] = None
+    boutique: Optional[str] = None
 
 
 class AssistantResponse(BaseModel):

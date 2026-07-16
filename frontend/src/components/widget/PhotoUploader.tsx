@@ -8,6 +8,8 @@ interface PhotoUploaderProps {
   preview?: string;
   onChange: (file: File) => void;
   accept?: string;
+  showConsent?: boolean;
+  onConsentChange?: (consented: boolean) => void;
 }
 
 export function PhotoUploader({
@@ -16,10 +18,13 @@ export function PhotoUploader({
   preview,
   onChange,
   accept = "image/*",
+  showConsent = false,
+  onConsentChange,
 }: PhotoUploaderProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  const [consented, setConsented] = useState(false);
   const descId = `upload-desc-${label.replace(/\s+/g, "-").toLowerCase()}`;
   const announceId = `upload-announce-${label.replace(/\s+/g, "-").toLowerCase()}`;
 
@@ -124,6 +129,30 @@ export function PhotoUploader({
           </div>
         )}
       </div>
+
+      {showConsent && (
+        <label className="mt-3 flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={consented}
+            onChange={(e) => {
+              const v = e.target.checked;
+              setConsented(v);
+              onConsentChange?.(v);
+            }}
+            className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border-zinc-600 bg-zinc-800 text-indigo-500
+                       focus:ring-2 focus:ring-indigo-500/40 focus:ring-offset-0
+                       accent-indigo-500"
+          />
+          <span className="text-xs text-zinc-500 leading-relaxed">
+            J&apos;accepte que ma photo soit utilisée uniquement pour l&apos;essayage virtuel
+            et supprimée après 24h. Consultez notre{" "}
+            <a href="/privacy" className="underline underline-offset-2 hover:text-zinc-400">
+              politique de confidentialité
+            </a>.
+          </span>
+        </label>
+      )}
 
       {/* Annonce pour lecteurs d'écran */}
       <div

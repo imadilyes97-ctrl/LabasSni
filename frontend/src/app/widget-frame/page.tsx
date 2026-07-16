@@ -6,13 +6,29 @@ import { ResultViewer } from "@/components/widget/ResultViewer";
 import { AssistantChat } from "@/components/widget/AssistantChat";
 import { useAssistant } from "@/hooks/useAssistant";
 
+/** Lit les query params de l'iframe de manière synchrone (avant le premier render). */
+function useWidgetParams() {
+  return useState(() => {
+    if (typeof window === "undefined") return { productType: undefined as string | undefined, ton: undefined as string | undefined, boutique: undefined as string | undefined };
+    const sp = new URLSearchParams(window.location.search);
+    return {
+      productType: sp.get("product_type") || undefined,
+      ton: sp.get("ton") || undefined,
+      boutique: sp.get("boutique") || undefined,
+    };
+  })[0];
+}
+
 export default function WidgetFrame() {
+  const params = useWidgetParams();
+
   const [personPhoto, setPersonPhoto] = useState<string | null>(null);
   const [personFile, setPersonFile] = useState<File | null>(null);
   const [result, setResult] = useState<{ image_url: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const a = useAssistant();
+
+  const a = useAssistant(params.ton, params.boutique);
 
   const handlePersonPhoto = (file: File) => {
     setPersonFile(file);
@@ -36,7 +52,7 @@ export default function WidgetFrame() {
       form.append("person_image", personFile);
       form.append("request", JSON.stringify({
         mode: "article_unique",
-        type_produit: "vêtement",
+        type_produit: params.productType || "vêtement",
         zone_corps: "haut du corps",
         style_rendu: "studio catalogue",
         orientation: "portrait 3:4",
@@ -66,7 +82,9 @@ export default function WidgetFrame() {
     <div className="flex h-full flex-col bg-surface text-white">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-3">
-        <span className="text-sm font-semibold text-zinc-200">lebeSsni</span>
+        <span className="text-sm font-semibold text-zinc-200">
+          {params.boutique || "lebeSsni"}
+        </span>
         <button
           onClick={closeWidget}
           className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
