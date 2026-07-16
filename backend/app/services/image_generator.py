@@ -1,18 +1,16 @@
-"""Service de génération d'image via API IA (FAL AI / Replicate).
+"""Service de génération d'image via RunPod Serverless.
 
-Sécurité :
-- Circuit breaker via tenacity (retry + backoff)
-- Timeout HTTP configurable
-- Validation des entrées
-- Fallback automatique Mock
+Architecture: Option B — proxy Nano Banana via RunPod (CPU, scale-to-zero).
+Remplace l'ancien provider FAL AI / Replicate.
 """
 
 import os
 import uuid
+import json
 import logging
-from typing import Optional
-from enum import Enum
+import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from enum import Enum
 from .prompt_engine import build_generation_prompt
 from ..models.tryon import TryonMode
 
@@ -20,9 +18,8 @@ logger = logging.getLogger(__name__)
 
 
 class ImageProvider(str, Enum):
-    fal = "fal-ai"
-    replicate = "replicate"
-    mock = "mock"
+    runpod = "runpod"
+    mock = "mock"  # Pour développement sans API
 
 
 class ImageGenerationError(Exception):
@@ -30,40 +27,36 @@ class ImageGenerationError(Exception):
 
 
 class ImageGenerator:
-    """Génère l'image de virtual try-on via une API IA.
+    """Génère l'image de virtual try-on via RunPod Serverless.
 
     Circuit breaker :
     - 3 tentatives avec backoff exponentiel (2s, 4s, 8s)
-    - Fallback automatique vers Mock si toutes les tentatives échouent
+    - Fallback Mock si toutes les tentatives échouent
     - Timeout HTTP : connect 10s, read 120s
+
+    RunPod :
+    - Endpoint: /runsync (synchrone, < 30s)
+    - Endpoint: /run (asynchrone, avec polling) si > 30s
     """
 
-    def __init__(self, provider: ImageProvider = ImageProvider.mock):
-        self.provider = provider
-        self._init_provider()
+    def __init__(self):
+        self.runpod_api_key = os.getenv("RUNPOD_API_KEY", "")
+        self.runpod_endpoint_id = os.getenv("RUNPOD_ENDPOINT_ID", "")
+        self.provider = (
+            ImageProvider.runpod
+            if self.runpod_api_key and self.runpod_endpoint_id
+            else ImageProvider.mock
+        )
 
-    def _init_provider(self):
-        """Initialise le provider choisi avec fallback Mock."""
-        if self.provider == ImageProvider.fal:
-            try:
-                import fal_client
-                self.client = fal_client
-            except ImportError:
-                logger.warning("fal-client non installé, fallback mock")
-                self.provider = ImageProvider.mock
-
-        elif self.provider == ImageProvider.replicate:
-            api_token = os.getenv("REPLICATE_API_TOKEN")
-            if not api_token:
-                logger.warning("REPLICATE_API_TOKEN manquant, fallback mock")
-                self.provider = ImageProvider.mock
+    def _runpod_url(self) -> str:
+        return f"https://api.runpod.ai/v2/{self.runpod_endpoint_id}/runsync"
 
     @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=2, min=2, max=10),
+        stop=stop_after_attempt(2),
+        wait=wait_exponential(multiplier=2, min=2, max=8),
         retry=retry_if_exception_type(ImageGenerationError),
-        before_sleep=lambda retry_state: logger.warning(
-            f"Tentative {retry_state.attempt_number}/3 échouée, retry dans {retry_state.next_action.sleep}..."
+        before_sleep=lambda rs: logger.warning(
+            f"Tentative {rs.attempt_number}/2 échouée, retry dans {rs.next_action.sleep}s..."
         ),
     )
     async def generate(
@@ -75,9 +68,8 @@ class ImageGenerator:
         zone_corps: str = "haut du corps",
         style_rendu: str = "studio catalogue",
         orientation: str = "portrait 3:4",
-        model_name: str = "fal-ai/flux-vton",
     ) -> dict:
-        """Génère l'image Try-On avec retry automatique."""
+        """Génère l'image Try-On via RunPod Serverless."""
         prompt = build_generation_prompt(
             mode=mode,
             type_produit=type_produit,
@@ -88,102 +80,79 @@ class ImageGenerator:
 
         logger.info(f"🎨 Génération Try-On [{self.provider.value}] — mode={mode.value}, produit={type_produit}")
 
-        if self.provider == ImageProvider.fal:
-            return await self._generate_fal(
-                person_image_path, product_image_path, prompt, model_name
-            )
-        elif self.provider == ImageProvider.replicate:
-            return await self._generate_replicate(
-                person_image_path, product_image_path, prompt
-            )
+        if self.provider == ImageProvider.runpod:
+            return await self._generate_runpod(person_image_path, product_image_path, prompt)
         else:
             return self._generate_mock(person_image_path, product_image_path, prompt)
 
-    async def _generate_fal(
+    async def _generate_runpod(
         self,
         person_image: str,
         product_image: str,
         prompt: str,
-        model_name: str,
     ) -> dict:
-        """Appelle l'API FAL AI avec timeout et retry."""
+        """Appelle l'endpoint RunPod Serverless /runsync."""
         import base64
-        import httpx
-        from ..core.sanitize import sanitize_prompt_input
-
-        # Sanitize prompt avant envoi à l'API
-        safe_prompt = sanitize_prompt_input(prompt, max_length=2000)
 
         def encode_image(path: str) -> str:
             with open(path, "rb") as f:
                 return base64.b64encode(f.read()).decode("utf-8")
 
-        try:
-            person_b64 = encode_image(person_image)
-            product_b64 = encode_image(product_image)
+        # Upload des images vers un bucket temporaire (ou passer en base64 selon le worker)
+        person_b64 = encode_image(person_image)
+        product_b64 = encode_image(product_image)
 
-            result = self.client.run(
-                model_name,
-                arguments={
-                    "person_image": f"data:image/jpeg;base64,{person_b64}",
-                    "product_image": f"data:image/jpeg;base64,{product_b64}",
-                    "prompt": safe_prompt,
+        payload = {
+            "input": {
+                "product_image_url": f"data:image/jpeg;base64,{product_b64}",
+                "user_image_url": f"data:image/jpeg;base64,{person_b64}",
+                "product_type": "vêtement",
+                "client_id": "lebessni",
+                "style_variables": {
+                    "prompt": prompt,
                 },
-            )
-            image_url = result.get("image", {}).get("url", result.get("output"))
-            if not image_url:
-                raise ImageGenerationError("Aucune URL d'image retournée par FAL AI")
+            }
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=10.0)) as client:
+                response = await client.post(
+                    self._runpod_url(),
+                    headers={
+                        "Authorization": f"Bearer {self.runpod_api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+
+            output = data.get("output", {})
+            image_b64 = output.get("image_base64", "")
+            status = output.get("status", "success")
+
+            if not image_b64 and status != "success":
+                raise ImageGenerationError(f"RunPod: {output.get('quality_report', {}).get('reason', 'échec inconnu')}")
 
             return {
                 "id": str(uuid.uuid4()),
-                "image_url": image_url,
-                "provider": "fal-ai",
-                "prompt_used": safe_prompt[:100],
+                "image_base64": image_b64,
+                "provider": "runpod",
+                "status": status,
+                "prompt_used": prompt[:100],
             }
 
+        except httpx.TimeoutException:
+            raise ImageGenerationError("Timeout appel RunPod (120s dépassé)")
+        except httpx.HTTPStatusError as e:
+            raise ImageGenerationError(f"RunPod HTTP {e.response.status_code}: {e.response.text[:200]}")
         except Exception as e:
-            raise ImageGenerationError(f"FAL AI error: {str(e)}") from e
-
-    async def _generate_replicate(
-        self,
-        person_image: str,
-        product_image: str,
-        prompt: str,
-    ) -> dict:
-        """Appelle l'API Replicate avec timeout et retry."""
-        import replicate
-        import httpx
-        from ..core.sanitize import sanitize_prompt_input
-
-        safe_prompt = sanitize_prompt_input(prompt, max_length=2000)
-
-        try:
-            output = replicate.run(
-                "cudingzuo/virtual-try-on:latest",
-                input={
-                    "person_image": open(person_image, "rb"),
-                    "product_image": open(product_image, "rb"),
-                    "prompt": safe_prompt,
-                },
-            )
-            output_url = str(output)
-            if not output_url or output_url == "None":
-                raise ImageGenerationError("Aucune URL retournée par Replicate")
-
-            return {
-                "id": str(uuid.uuid4()),
-                "image_url": output_url,
-                "provider": "replicate",
-                "prompt_used": safe_prompt[:100],
-            }
-
-        except Exception as e:
-            raise ImageGenerationError(f"Replicate error: {str(e)}") from e
+            raise ImageGenerationError(f"RunPod error: {str(e)}") from e
 
     def _generate_mock(
         self, person_image: str, product_image: str, prompt: str
     ) -> dict:
-        """Mock pour développement — retourne une URL fictive."""
+        """Mock pour développement."""
         logger.info(f"[MOCK] Génération Try-On avec prompt:\n{prompt[:200]}...")
         return {
             "id": str(uuid.uuid4()),
