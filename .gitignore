@@ -7,11 +7,18 @@ backend/uploads/
 backend/lebeSsni.db
 backend/lebeSsni.db-*
 
+# Local DB
+*.db
+*.db-shm
+*.db-wal
+
 # Frontend
 frontend/.env.local
 frontend/.next/
 frontend/node_modules/
 frontend/out/
+frontend/tsconfig.tsbuildinfo
+frontend/next-env.d.ts
 
 # Python
 *.pyc
