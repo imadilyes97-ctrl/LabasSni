@@ -24,3 +24,5 @@ frontend/next-env.d.ts
 *.pyc
 __pycache__/
 .env
+
+.vercel
