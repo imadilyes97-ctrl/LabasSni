@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { Header } from "@/components/Header";
 
 export const metadata: Metadata = {
   title: "lebeSsni — Essayage Virtuel IA",
@@ -20,7 +21,10 @@ export default function RootLayout({
 }) {
   return (
     <html lang="fr">
-      <body className="antialiased">{children}</body>
+      <body className="antialiased">
+        <Header />
+        <main>{children}</main>
+      </body>
     </html>
   );
 }

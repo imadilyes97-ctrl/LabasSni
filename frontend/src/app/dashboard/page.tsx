@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import {
   getDashboardProduits,
   createDashboardProduit,
@@ -255,7 +256,27 @@ function DemoSpan() {
    =================================================================== */
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [tab, setTab] = useState<Tab>("produits");
+  const [authChecked, setAuthChecked] = useState(false);
+
+  // Auth guard — rediriger vers /login si pas de token
+  useEffect(() => {
+    const token = localStorage.getItem("token");
+    if (!token) {
+      router.push("/login");
+    } else {
+      setAuthChecked(true);
+    }
+  }, [router]);
+
+  if (!authChecked) {
+    return (
+      <div className="flex min-h-[60vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-zinc-700 border-t-indigo-500" />
+      </div>
+    );
+  }
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "produits", label: "📦 Produits" },
