@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import Script from "next/script";
 import Link from "next/link";
 import { PhotoUploader } from "@/components/widget/PhotoUploader";
-import { ResultViewer } from "@/components/widget/ResultViewer";
 
 const META_PIXEL_ID = process.env.NEXT_PUBLIC_META_PIXEL_ID || "";
 const TIKTOK_PIXEL_ID = process.env.NEXT_PUBLIC_TIKTOK_PIXEL_ID || "";

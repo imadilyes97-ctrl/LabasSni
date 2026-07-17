@@ -2,8 +2,6 @@
 
 import { useState, useMemo } from "react";
 import { PhotoUploader } from "@/components/widget/PhotoUploader";
-import { ResultViewer } from "@/components/widget/ResultViewer";
-import { AssistantChat } from "@/components/widget/AssistantChat";
 import { useAssistant } from "@/hooks/useAssistant";
 
 /** Lis et valide tous les paramètres de configuration du widget depuis l'URL */
