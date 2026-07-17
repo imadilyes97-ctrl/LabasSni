@@ -1,15 +1,11 @@
-# lebeSsni — Variables d'environnement
+# lebeSsni — Variables d'environnement (projet unique Next.js)
 
-## BACKEND (Vercel)
+## Vercel
 
-| Variable | Obligatoire |
-|----------|:-----------:|
-| `DATABASE_URL` | ✅ OUI - Sans ça, pas de DB |
+| Variable | Obligatoire | Description |
+|----------|:-----------:|-------------|
+| `DATABASE_URL` | ✅ OUI | URL de connexion PostgreSQL (Supabase) |
 
-Les autres (JWT_SECRET, API_KEY, RUNPOD_API_KEY...) ont des valeurs par défaut. Pas besoin de les remplir.
+Les autres (`JWT_SECRET`, `RUNPOD_API_KEY`...) ont des valeurs par défaut. Pas besoin de les remplir.
 
-## FRONTEND (Vercel)
-
-| Variable | Obligatoire |
-|----------|:-----------:|
-| `NEXT_PUBLIC_API_URL` | ✅ OUI - URL du backend déployé sur Vercel |
+Le backend Python a été migré dans les API routes Next.js → **plus besoin de `NEXT_PUBLIC_API_URL`**.
