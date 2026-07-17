@@ -10,7 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.110.7",
     "bcryptjs": "^3.0.3",
     "framer-motion": "^11.0.0",
     "jsonwebtoken": "^9.0.3",
