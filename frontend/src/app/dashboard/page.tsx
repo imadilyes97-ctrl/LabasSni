@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   getDashboardProduits,
@@ -16,7 +16,7 @@ import {
   type DashboardConfig,
 } from "@/lib/api";
 
-type Tab = "produits" | "config" | "stats" | "credits";
+type Tab = "produits" | "config" | "stats" | "credits" | "widget";
 
 /* ── Types des plans (fallback si API ne les renvoie pas) ── */
 const DEFAULT_PLANS = [
@@ -280,6 +280,7 @@ export default function DashboardPage() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "produits", label: "📦 Produits" },
+    { key: "widget", label: "🪟 Widget" },
     { key: "config", label: "⚙️ Configuration" },
     { key: "stats", label: "📊 Statistiques" },
     { key: "credits", label: "💰 Crédits" },
@@ -315,6 +316,7 @@ export default function DashboardPage() {
 
         {/* Content */}
         {tab === "produits" && <ProduitsTab />}
+        {tab === "widget" && <WidgetTab />}
         {tab === "config" && <ConfigTab />}
         {tab === "stats" && <StatsTab />}
         {tab === "credits" && <CreditsTab />}
@@ -893,6 +895,245 @@ function CreditsTab() {
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+/* ===================================================================
+   WIDGET TAB — Installation & configuration
+   =================================================================== */
+
+function WidgetTab() {
+  const [nomBoutique, setNomBoutique] = useState("");
+  const [primaryColor, setPrimaryColor] = useState("#4f46e5");
+  const [bgColor, setBgColor] = useState("#0a0a0f");
+  const [textColor, setTextColor] = useState("#f4f4f5");
+  const [ctaText, setCtaText] = useState("Voir le rendu");
+  const [hideChat, setHideChat] = useState(false);
+  const [hideHeader, setHideHeader] = useState(false);
+  const [radius, setRadius] = useState("12");
+  const [copied, setCopied] = useState(false);
+
+  // Récupérer le nom de la boutique depuis le localStorage
+  useEffect(() => {
+    const stored = localStorage.getItem("nom_boutique");
+    if (stored) setNomBoutique(stored);
+  }, []);
+
+  const [origin, setOrigin] = useState("");
+  useEffect(() => {
+    setOrigin(window.location.origin);
+  }, []);
+
+  const widgetUrl = useMemo(() => {
+    const base = origin || "https://labas-sni.vercel.app";
+    const params = new URLSearchParams();
+    if (nomBoutique) params.set("boutique", nomBoutique);
+    if (primaryColor !== "#4f46e5") params.set("primary_color", primaryColor);
+    if (bgColor !== "#0a0a0f") params.set("bg_color", bgColor);
+    if (textColor !== "#f4f4f5") params.set("text_color", textColor);
+    if (ctaText !== "Voir le rendu") params.set("cta_text", ctaText);
+    if (hideChat) params.set("hide_chat", "true");
+    if (hideHeader) params.set("hide_header", "true");
+    if (radius !== "12") params.set("radius", radius);
+    const qs = params.toString();
+    return `${base}/widget-frame${qs ? "?" + qs : ""}`;
+  }, [origin, nomBoutique, primaryColor, bgColor, textColor, ctaText, hideChat, hideHeader, radius]);
+
+  const iframeCode = useMemo(() => {
+    const height = Math.max(400, Math.min(900, hideChat && hideHeader ? 500 : 700));
+    return `<iframe
+  src="${widgetUrl}"
+  width="100%"
+  height="${height}px"
+  style="border:none; border-radius:${radius}px; overflow:hidden;"
+  loading="lazy"
+  allow="camera"
+></iframe>`;
+  }, [widgetUrl, radius]);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(iframeCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    } catch {
+      // Fallback
+      const ta = document.createElement("textarea");
+      ta.value = iframeCode;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      document.body.removeChild(ta);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2500);
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* En-tête */}
+      <div>
+        <h2 className="text-lg font-semibold text-zinc-200">
+          🪟 Installation du Widget
+        </h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Configure et installe le widget d&apos;essayage virtuel sur ta boutique.
+          Colle le code dans la page produit de ton site.
+        </p>
+      </div>
+
+      <div className="grid gap-8 lg:grid-cols-2">
+        {/* ── Configurateur ── */}
+        <div className="space-y-5 rounded-xl border border-zinc-800 bg-zinc-900/50 p-6">
+          <h3 className="text-sm font-semibold text-zinc-300">
+            Personnalisation
+          </h3>
+
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">Nom de la boutique</label>
+            <input type="text" value={nomBoutique}
+              onChange={(e) => setNomBoutique(e.target.value)}
+              placeholder="Ma Boutique"
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500 placeholder-zinc-600" />
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Couleur principale</label>
+              <input type="color" value={primaryColor}
+                onChange={(e) => setPrimaryColor(e.target.value)}
+                className="h-10 w-full cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800" />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Fond</label>
+              <input type="color" value={bgColor}
+                onChange={(e) => setBgColor(e.target.value)}
+                className="h-10 w-full cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800" />
+            </div>
+            <div>
+              <label className="block text-sm text-zinc-400 mb-1">Texte</label>
+              <input type="color" value={textColor}
+                onChange={(e) => setTextColor(e.target.value)}
+                className="h-10 w-full cursor-pointer rounded-lg border border-zinc-700 bg-zinc-800" />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">Texte du bouton CTA</label>
+            <input type="text" value={ctaText}
+              onChange={(e) => setCtaText(e.target.value)}
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-800 px-4 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500" />
+          </div>
+
+          <div>
+            <label className="block text-sm text-zinc-400 mb-1">
+              Bordures arrondies : {radius}px
+            </label>
+            <input type="range" min="4" max="24" value={radius}
+              onChange={(e) => setRadius(e.target.value)}
+              className="w-full accent-indigo-500" />
+          </div>
+
+          <div className="flex gap-6">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={hideChat}
+                onChange={(e) => setHideChat(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-600 accent-indigo-500" />
+              <span className="text-sm text-zinc-400">Cacher le chat</span>
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input type="checkbox" checked={hideHeader}
+                onChange={(e) => setHideHeader(e.target.checked)}
+                className="h-4 w-4 rounded border-zinc-600 accent-indigo-500" />
+              <span className="text-sm text-zinc-400">Cacher l&apos;en-tête</span>
+            </label>
+          </div>
+        </div>
+
+        {/* ── Aperçu + Code ── */}
+        <div className="space-y-5">
+          {/* Aperçu en direct */}
+          <div className="overflow-hidden rounded-xl border border-zinc-800">
+            <div className="border-b border-zinc-800 bg-zinc-900/80 px-4 py-2">
+              <span className="text-xs text-zinc-500">🪟 Aperçu du widget</span>
+            </div>
+            <div className="aspect-[3/5] w-full overflow-hidden bg-zinc-950" style={{ maxHeight: 350 }}>
+              <iframe
+                src={widgetUrl}
+                className="h-full w-full"
+                style={{ border: "none" }}
+                title="Aperçu widget"
+              />
+            </div>
+          </div>
+
+          {/* Code embed */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50">
+            <div className="flex items-center justify-between border-b border-zinc-800 px-4 py-2">
+              <span className="text-xs text-zinc-500">📋 Code à copier</span>
+              <button
+                onClick={copyCode}
+                className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
+                  copied
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+                }`}
+              >
+                {copied ? "✅ Copié !" : "Copier"}
+              </button>
+            </div>
+            <pre className="overflow-x-auto p-4 text-xs text-zinc-400 font-mono leading-relaxed">{iframeCode}</pre>
+          </div>
+
+          {/* Instructions */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <h4 className="text-sm font-medium text-zinc-300 mb-2">📖 Instructions d&apos;installation</h4>
+            <ol className="space-y-2 text-sm text-zinc-400 list-decimal list-inside">
+              <li>Copie le code ci-dessus</li>
+              <li>Colle-le dans la page produit de ton site (avant la balise <code className="text-zinc-300">&lt;/body&gt;</code>)</li>
+              <li>Le widget s&apos;affichera automatiquement sur la page</li>
+              <li>Tu peux aussi l&apos;utiliser en popup en ajoutant <code className="text-zinc-300">#popup</code> à l&apos;URL</li>
+            </ol>
+          </div>
+        </div>
+      </div>
+
+      {/* Paramètres avancés (URL) */}
+      <details className="rounded-xl border border-zinc-800 bg-zinc-900/50">
+        <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200">
+          🔧 Paramètres avancés (URL)
+        </summary>
+        <div className="border-t border-zinc-800 px-4 py-4">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-zinc-500 text-xs">
+                <th className="text-left pb-2 pr-4">Paramètre</th>
+                <th className="text-left pb-2 pr-4">Exemple</th>
+                <th className="text-left pb-2">Description</th>
+              </tr>
+            </thead>
+            <tbody className="text-zinc-400">
+              {[
+                ["product_id", "abc123", "ID du produit à essayer"],
+                ["product_name", "T-Shirt Noir", "Nom du produit affiché"],
+                ["product_image", "https://...", "URL image du produit"],
+                ["product_type", "t-shirt", "Type de produit (t-shirt, robe...)"],
+                ["ton", "chaleureux, premium", "Ton de l'assistant"],
+                ["logo_url", "https://...", "URL du logo de la boutique"],
+                ["title", "Essayez ce produit", "Titre personnalisé"],
+                ["lang", "fr, en, ar", "Langue du widget"],
+              ].map(([param, exemple, desc]) => (
+                <tr key={param}>
+                  <td className="pb-1.5 pr-4 text-zinc-300 font-mono text-xs">{param}</td>
+                  <td className="pb-1.5 pr-4 text-zinc-500 text-xs">{exemple}</td>
+                  <td className="pb-1.5 text-zinc-500 text-xs">{desc}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </details>
     </div>
   );
 }
